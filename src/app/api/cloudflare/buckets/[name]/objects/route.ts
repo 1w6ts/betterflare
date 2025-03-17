@@ -9,7 +9,7 @@ type RouteContext = {
 
 // List objects in a bucket using the S3-compatible API
 export async function GET(request: NextRequest, context: RouteContext) {
-  const bucketName = context.params.name;
+  const bucketName = await context.params.name;
 
   // Get credentials from request headers
   const accountId = request.headers.get("x-cf-account-id");
