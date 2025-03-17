@@ -1,12 +1,15 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { S3Client, ListObjectsV2Command } from "@aws-sdk/client-s3";
 
+type RouteContext = {
+  params: {
+    name: string;
+  };
+};
+
 // List objects in a bucket using the S3-compatible API
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { name: string } }
-) {
-  const bucketName = params.name;
+export async function GET(request: NextRequest, context: RouteContext) {
+  const bucketName = context.params.name;
 
   // Get credentials from request headers
   const accountId = request.headers.get("x-cf-account-id");
@@ -92,11 +95,8 @@ export async function GET(
 }
 
 // Upload an object to a bucket
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { name: string } }
-) {
-  const bucketName = params.name;
+export async function POST(request: NextRequest, context: RouteContext) {
+  const bucketName = context.params.name;
 
   // Get credentials from request headers
   const accountId = request.headers.get("x-cf-account-id");
@@ -130,11 +130,8 @@ export async function POST(
 }
 
 // Delete an object from a bucket
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { name: string } }
-) {
-  const bucketName = params.name;
+export async function DELETE(request: NextRequest, context: RouteContext) {
+  const bucketName = context.params.name;
   const key = request.nextUrl.searchParams.get("key");
 
   if (!key) {
