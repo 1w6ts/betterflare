@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { S3Client, ListObjectsV2Command } from "@aws-sdk/client-s3";
 
 // List objects in a bucket using the S3-compatible API
-export async function GET(
+export default async function GET(
   request: NextRequest,
   { params }: { params: { name: string } }
 ) {
