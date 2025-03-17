@@ -296,7 +296,10 @@ export default function BucketsPage() {
               Manage your R2 storage buckets
             </p>
           </div>
-          <Button onClick={() => setIsSettingsDialogOpen(true)}>
+          <Button
+            variant="outline"
+            onClick={() => setIsSettingsDialogOpen(true)}
+          >
             <Settings className="mr-2 h-4 w-4" />
             Configure Cloudflare
           </Button>
@@ -310,7 +313,10 @@ export default function BucketsPage() {
             Please configure your Cloudflare credentials to access your R2
             buckets.
           </p>
-          <Button onClick={() => setIsSettingsDialogOpen(true)}>
+          <Button
+            variant="outline"
+            onClick={() => setIsSettingsDialogOpen(true)}
+          >
             <Settings className="mr-2 h-4 w-4" />
             Configure Cloudflare
           </Button>
@@ -430,7 +436,10 @@ export default function BucketsPage() {
               Manage your R2 storage buckets
             </p>
           </div>
-          <Button onClick={() => setIsSettingsDialogOpen(true)}>
+          <Button
+            variant="outline"
+            onClick={() => setIsSettingsDialogOpen(true)}
+          >
             <Settings className="mr-2 h-4 w-4" />
             Configure Cloudflare
           </Button>

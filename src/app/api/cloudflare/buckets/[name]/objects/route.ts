@@ -4,9 +4,9 @@ import { S3Client, ListObjectsV2Command } from "@aws-sdk/client-s3";
 // List objects in a bucket using the S3-compatible API
 export async function GET(
   request: NextRequest,
-  { params }: Record<string, any>
+  { params }: { params: { name: string } }
 ) {
-  const bucketName = params.name;
+  const bucketName = await params.name;
 
   // Get credentials from request headers
   const accountId = request.headers.get("x-cf-account-id");

@@ -11,13 +11,13 @@ import {
   Database,
   Download,
   FileText,
-  FolderOpen,
   HardDrive,
   Plus,
   Upload,
   Zap,
   Clock,
   AlertCircle,
+  Settings,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -32,7 +32,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { useStore, formatBytes, getTimeAgo } from "@/lib/store";
+import {
+  hasCloudflareCredentials,
+  listBuckets,
+  listObjects,
+} from "@/lib/cloudflare";
+import { SettingsDialog } from "@/components/dashboard/settings-dialog";
+import { useRouter } from "next/navigation";
 
+// Skeleton loader component
 const Skeleton = ({
   className,
   ...props
@@ -50,32 +59,141 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [storageProgress, setStorageProgress] = useState(0);
 
-  // Simulate loading state
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setLoading(false);
-    }, 1000);
+  // Get data from store
+  const user = useStore((state) => state.user);
+  const activityLogs = useStore((state) => state.activityLogs);
+  const getTotalStorageUsed = useStore((state) => state.getTotalStorageUsed);
+  const getTotalStorageLimit = useStore((state) => state.getTotalStorageLimit);
+  const getStoragePercentage = useStore((state) => state.getStoragePercentage);
 
-    return () => clearTimeout(timer);
+  // Add these state variables after the existing useState declarations
+  const [buckets, setBuckets] = useState<any[]>([]);
+  const [totalFiles, setTotalFiles] = useState(0);
+  const [storageUsed, setStorageUsed] = useState(0);
+  const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
+  const [hasCredentials, setHasCredentials] = useState(false);
+
+  // Next Router
+  const router = useRouter();
+
+  // Calculate storage stats
+  const totalFilesCalc = totalFiles; // We already calculated this from API data
+  const storageUsedCalc = storageUsed; // We already calculated this from API data
+  const storageLimitCalc = getTotalStorageLimit();
+  const storagePercentageCalc = getStoragePercentage();
+
+  // Replace the existing useEffect with this updated version that checks for credentials
+  useEffect(() => {
+    const checkCredentials = async () => {
+      // Check if we're in the browser environment
+      if (typeof window !== "undefined") {
+        const hasCredentials = hasCloudflareCredentials();
+        setHasCredentials(hasCredentials);
+
+        if (!hasCredentials) {
+          setLoading(false);
+          return;
+        }
+
+        try {
+          // Fetch actual data if credentials exist
+          const bucketsData = await listBuckets();
+          const bucketsWithSizes = [...(bucketsData.buckets || [])];
+
+          // Calculate total files by fetching objects from each bucket
+          let totalFilesCount = 0;
+          let totalStorageSize = 0;
+
+          // Process each bucket to get its size and object count
+          for (let i = 0; i < bucketsWithSizes.length; i++) {
+            const bucket = bucketsWithSizes[i];
+            try {
+              console.log(`Fetching objects for bucket: ${bucket.name}`);
+              const objectsData = await listObjects(bucket.name, {
+                maxKeys: 1000,
+              });
+              const objects = objectsData.objects || [];
+
+              // Calculate bucket size and count
+              let bucketSize = 0;
+              objects.forEach((obj: any) => {
+                bucketSize += obj.Size || 0;
+              });
+
+              // Update the bucket with size and object count
+              bucketsWithSizes[i] = {
+                ...bucket,
+                size: bucketSize,
+                objects_count: objects.length,
+              };
+
+              // Add to totals
+              totalFilesCount += objects.length;
+              totalStorageSize += bucketSize;
+
+              console.log(
+                `Bucket ${bucket.name}: ${
+                  objects.length
+                } objects, ${formatBytes(bucketSize)} size`
+              );
+            } catch (err) {
+              console.error(
+                `Error fetching objects for bucket ${bucket.name}:`,
+                err
+              );
+              // Keep the bucket but with zero size/count if there was an error
+              bucketsWithSizes[i] = {
+                ...bucket,
+                size: 0,
+                objects_count: 0,
+              };
+            }
+          }
+
+          // Update state with actual data
+          setBuckets(bucketsWithSizes);
+          setTotalFiles(totalFilesCount);
+          setStorageUsed(totalStorageSize);
+        } catch (err) {
+          console.error("Error fetching data:", err);
+        }
+
+        // Simulate initial loading
+        const timer = setTimeout(() => {
+          setLoading(false);
+        }, 800);
+
+        return () => clearTimeout(timer);
+      }
+    };
+
+    checkCredentials();
+  }, []);
+
+  // Add this useEffect to check for credentials
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setHasCredentials(hasCloudflareCredentials());
+    }
   }, []);
 
   // Animate progress bar
   useEffect(() => {
     if (!loading) {
       const timer = setTimeout(() => {
-        setStorageProgress(83);
+        setStorageProgress(storagePercentageCalc);
       }, 300);
 
       return () => clearTimeout(timer);
     }
-  }, [loading]);
+  }, [loading, storagePercentageCalc]);
 
   return (
     <div className="space-y-8">
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">
-            Welcome back, Jacob!
+            Welcome back, {user?.name?.split(" ")[0] || "User"}!
           </h1>
           <p className="text-muted-foreground">
             Here's an overview of your R2 storage and recent activity.
@@ -86,7 +204,18 @@ export default function DashboardPage() {
             <Download className="mr-2 h-4 w-4" />
             Export Report
           </Button>
-          <Button size="sm" className="h-9">
+          <Button
+            size="sm"
+            className="h-9"
+            onClick={() => {
+              // Show a dialog to create a new bucket
+              const bucketName = prompt("Enter bucket name:");
+              if (bucketName) {
+                const store = useStore.getState();
+                store.createBucket(bucketName);
+              }
+            }}
+          >
             <Plus className="mr-2 h-4 w-4" />
             New Bucket
           </Button>
@@ -111,8 +240,34 @@ export default function DashboardPage() {
                 </CardContent>
               </Card>
             ))
+        ) : !hasCredentials ? (
+          // No credentials state
+          <Card className="col-span-4 overflow-hidden transition-all duration-200">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">
+                Cloudflare R2 Not Configured
+              </CardTitle>
+              <Settings className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-center py-6">
+                <Database className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-medium mb-2">
+                  No Cloudflare R2 Credentials
+                </h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Please configure your Cloudflare R2 credentials to view your
+                  storage statistics.
+                </p>
+                <Button onClick={() => setIsSettingsDialogOpen(true)}>
+                  <Settings className="mr-2 h-4 w-4" />
+                  Configure Cloudflare
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         ) : (
-          // Actual stats cards
+          // Actual stats cards with real data
           <>
             <Card className="overflow-hidden transition-all duration-200 hover:shadow-md">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -122,8 +277,13 @@ export default function DashboardPage() {
                 <HardDrive className="h-4 w-4 text-primary" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">207.4 GB</div>
-                <p className="text-xs text-muted-foreground">of 250 GB (83%)</p>
+                <div className="text-2xl font-bold">
+                  {formatBytes(storageUsed)}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  of {formatBytes(getTotalStorageLimit())} (
+                  {Math.round((storageUsed / getTotalStorageLimit()) * 100)}%)
+                </p>
                 <Progress
                   value={storageProgress}
                   className="mt-3 h-1.5 transition-all duration-1000"
@@ -139,16 +299,20 @@ export default function DashboardPage() {
                 <Database className="h-4 w-4 text-primary" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">5</div>
+                <div className="text-2xl font-bold">{buckets.length}</div>
                 <div className="flex items-center mt-1">
                   <Badge
                     variant="outline"
                     className="bg-green-500/10 text-green-500 border-green-500/20 text-xs"
                   >
-                    +1
+                    {buckets.length > 0
+                      ? `${buckets.length} active`
+                      : "No buckets"}
                   </Badge>
                   <p className="text-xs text-muted-foreground ml-1.5">
-                    from last month
+                    {buckets.length > 0
+                      ? "buckets available"
+                      : "Create your first bucket"}
                   </p>
                 </div>
               </CardContent>
@@ -162,16 +326,18 @@ export default function DashboardPage() {
                 <FileText className="h-4 w-4 text-primary" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">21,067</div>
+                <div className="text-2xl font-bold">{totalFiles}</div>
                 <div className="flex items-center mt-1">
                   <Badge
                     variant="outline"
                     className="bg-green-500/10 text-green-500 border-green-500/20 text-xs"
                   >
-                    +342
+                    {totalFiles > 0 ? `${totalFiles} files` : "No files"}
                   </Badge>
                   <p className="text-xs text-muted-foreground ml-1.5">
-                    from last week
+                    {totalFiles > 0
+                      ? "across all buckets"
+                      : "Upload your first file"}
                   </p>
                 </div>
               </CardContent>
@@ -183,16 +349,16 @@ export default function DashboardPage() {
                 <BarChart3 className="h-4 w-4 text-primary" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">1.2 TB</div>
+                <div className="text-2xl font-bold">-</div>
                 <div className="flex items-center mt-1">
                   <Badge
                     variant="outline"
-                    className="bg-green-500/10 text-green-500 border-green-500/20 text-xs"
+                    className="bg-muted text-muted-foreground border-muted/20 text-xs"
                   >
-                    +12%
+                    Not Available
                   </Badge>
                   <p className="text-xs text-muted-foreground ml-1.5">
-                    from last month
+                    Bandwidth stats not provided by API
                   </p>
                 </div>
               </CardContent>
@@ -221,244 +387,288 @@ export default function DashboardPage() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview" className="space-y-4">
-          {loading ? (
-            // Skeleton loaders for content
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-              <div className="lg:col-span-4">
-                <Card>
-                  <CardHeader>
-                    <Skeleton className="h-5 w-24" />
-                    <Skeleton className="h-4 w-48" />
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {Array(5)
-                      .fill(0)
-                      .map((_, i) => (
-                        <div key={i} className="space-y-2">
-                          <div className="flex justify-between">
-                            <Skeleton className="h-4 w-32" />
-                            <Skeleton className="h-4 w-16" />
-                          </div>
-                          <Skeleton className="h-2 w-full" />
-                          <div className="flex justify-between">
-                            <Skeleton className="h-3 w-20" />
-                            <Skeleton className="h-3 w-16" />
-                          </div>
-                        </div>
-                      ))}
-                  </CardContent>
-                </Card>
-              </div>
-              <div className="lg:col-span-3">
-                <Card>
-                  <CardHeader>
-                    <Skeleton className="h-5 w-32" />
-                    <Skeleton className="h-4 w-48" />
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {Array(5)
-                      .fill(0)
-                      .map((_, i) => (
-                        <div key={i} className="flex gap-4">
-                          <Skeleton className="h-10 w-10 rounded-full" />
-                          <div className="space-y-2 flex-1">
-                            <Skeleton className="h-4 w-24" />
-                            <Skeleton className="h-3 w-full" />
-                            <Skeleton className="h-3 w-20" />
-                          </div>
-                        </div>
-                      ))}
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-              <Card className="lg:col-span-4 transition-all duration-200 hover:shadow-md">
+        {loading ? (
+          // Skeleton loaders for content
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+            <div className="lg:col-span-4">
+              <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Database className="h-5 w-5 text-primary" />
-                    <span>Buckets</span>
-                  </CardTitle>
-                  <CardDescription>
-                    Your R2 storage buckets and usage
-                  </CardDescription>
+                  <Skeleton className="h-5 w-24" />
+                  <Skeleton className="h-4 w-48" />
                 </CardHeader>
-                <CardContent>
-                  <div className="space-y-5">
-                    {[
-                      {
-                        name: "assets-production",
-                        files: "1,245",
-                        size: "32.4 GB",
-                        percentage: 15,
-                      },
-                      {
-                        name: "user-uploads",
-                        files: "8,901",
-                        size: "156.7 GB",
-                        percentage: 75,
-                      },
-                      {
-                        name: "backups",
-                        files: "42",
-                        size: "8.9 GB",
-                        percentage: 4,
-                      },
-                      {
-                        name: "static-website",
-                        files: "312",
-                        size: "5.2 GB",
-                        percentage: 3,
-                      },
-                      {
-                        name: "logs",
-                        files: "10,567",
-                        size: "4.1 GB",
-                        percentage: 2,
-                      },
-                    ].map((bucket, i) => (
-                      <div key={i} className="group">
-                        <div className="flex items-center justify-between mb-1">
-                          <div className="flex items-center gap-2">
-                            <Database className="h-4 w-4 text-primary" />
-                            <span className="font-medium group-hover:text-primary transition-colors">
-                              {bucket.name}
-                            </span>
-                          </div>
-                          <div className="text-sm text-muted-foreground">
-                            {bucket.size}
-                          </div>
+                <CardContent className="space-y-4">
+                  {Array(5)
+                    .fill(0)
+                    .map((_, i) => (
+                      <div key={i} className="space-y-2">
+                        <div className="flex justify-between">
+                          <Skeleton className="h-4 w-32" />
+                          <Skeleton className="h-4 w-16" />
                         </div>
-                        <Progress
-                          value={bucket.percentage}
-                          className="h-1.5 group-hover:bg-muted/70 transition-colors"
-                        />
-                        <div className="flex items-center justify-between text-xs text-muted-foreground mt-1">
-                          <span>{bucket.files} files</span>
-                          <span>{bucket.percentage}% of total</span>
+                        <Skeleton className="h-2 w-full" />
+                        <div className="flex justify-between">
+                          <Skeleton className="h-3 w-20" />
+                          <Skeleton className="h-3 w-16" />
                         </div>
                       </div>
                     ))}
-                  </div>
-                  <div className="mt-6">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      asChild
-                      className="group"
-                    >
-                      <Link href="/dashboard/buckets">
-                        View all buckets
-                        <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
-                      </Link>
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="lg:col-span-3 transition-all duration-200 hover:shadow-md">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Clock className="h-5 w-5 text-primary" />
-                    <span>Recent Activity</span>
-                  </CardTitle>
-                  <CardDescription>
-                    Latest actions in your storage
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-5">
-                    {[
-                      {
-                        action: "Upload",
-                        description: "10 files uploaded to user-uploads",
-                        time: "2 minutes ago",
-                        icon: Upload,
-                        color: "bg-green-500/10 text-green-500",
-                      },
-                      {
-                        action: "Create",
-                        description: "New bucket 'static-website' created",
-                        time: "1 hour ago",
-                        icon: Plus,
-                        color: "bg-blue-500/10 text-blue-500",
-                      },
-                      {
-                        action: "Download",
-                        description: "Downloaded report-2023.pdf",
-                        time: "3 hours ago",
-                        icon: Download,
-                        color: "bg-purple-500/10 text-purple-500",
-                      },
-                      {
-                        action: "Delete",
-                        description: "Deleted 5 old backup files",
-                        time: "Yesterday",
-                        icon: FileText,
-                        color: "bg-amber-500/10 text-amber-500",
-                      },
-                      {
-                        action: "Share",
-                        description:
-                          "Created shareable link for presentation.pptx",
-                        time: "2 days ago",
-                        icon: ArrowUpRight,
-                        color: "bg-indigo-500/10 text-indigo-500",
-                      },
-                    ].map((activity, i) => (
-                      <div key={i} className="flex items-start gap-4 group">
-                        <div
-                          className={`flex h-9 w-9 items-center justify-center rounded-full ${activity.color} transition-transform group-hover:scale-110`}
-                        >
-                          <activity.icon className="h-4 w-4" />
-                        </div>
-                        <div className="flex-1 space-y-1">
-                          <p className="text-sm font-medium leading-none group-hover:text-primary transition-colors">
-                            {activity.action}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            {activity.description}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {activity.time}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-6">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      asChild
-                      className="group"
-                    >
-                      <Link href="/dashboard/activity">
-                        View all activity
-                        <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
-                      </Link>
-                    </Button>
-                  </div>
                 </CardContent>
               </Card>
             </div>
-          )}
-
-          {!loading && (
-            <Card className="transition-all duration-200 hover:shadow-md">
+            <div className="lg:col-span-3">
+              <Card>
+                <CardHeader>
+                  <Skeleton className="h-5 w-32" />
+                  <Skeleton className="h-4 w-48" />
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {Array(5)
+                    .fill(0)
+                    .map((_, i) => (
+                      <div key={i} className="flex gap-4">
+                        <Skeleton className="h-10 w-10 rounded-full" />
+                        <div className="space-y-2 flex-1">
+                          <Skeleton className="h-4 w-24" />
+                          <Skeleton className="h-3 w-full" />
+                          <Skeleton className="h-3 w-20" />
+                        </div>
+                      </div>
+                    ))}
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        ) : !hasCredentials ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Configure Cloudflare R2</CardTitle>
+              <CardDescription>
+                Set up your Cloudflare R2 credentials to get started
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="rounded-md bg-muted p-4 text-center">
+                <Database className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-medium mb-2">
+                  No Cloudflare R2 Credentials
+                </h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  To use Betterflare, you need to configure your Cloudflare R2
+                  credentials. This will allow you to manage your buckets and
+                  files.
+                </p>
+                <Button onClick={() => setIsSettingsDialogOpen(true)}>
+                  <Settings className="mr-2 h-4 w-4" />
+                  Configure Cloudflare
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+            <Card className="lg:col-span-4 transition-all duration-200 hover:shadow-md">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <AlertCircle className="h-5 w-5 text-primary" />
-                  <span>Storage Insights</span>
+                  <Database className="h-5 w-5 text-primary" />
+                  <span>Buckets</span>
                 </CardTitle>
                 <CardDescription>
-                  Recommendations to optimize your storage
+                  Your R2 storage buckets and usage
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
+                {buckets.length === 0 ? (
+                  <div className="text-center py-6">
+                    <Database className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <h3 className="text-lg font-medium mb-2">
+                      No Buckets Found
+                    </h3>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      You don't have any R2 buckets yet. Create your first
+                      bucket to get started.
+                    </p>
+                    <Button
+                      onClick={() =>
+                        router.push("/dashboard/buckets?action=create")
+                      }
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Create Bucket
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-5">
+                    {buckets.map((bucket, i) => {
+                      const bucketSize = bucket.size || 0;
+                      const percentage =
+                        storageUsed > 0
+                          ? Math.round((bucketSize / storageUsed) * 100)
+                          : 0;
+
+                      return (
+                        <div key={bucket.name} className="group">
+                          <div className="flex items-center justify-between mb-1">
+                            <div className="flex items-center gap-2">
+                              <Database className="h-4 w-4 text-primary" />
+                              <span className="font-medium group-hover:text-primary transition-colors">
+                                {bucket.name}
+                              </span>
+                            </div>
+                            <div className="text-sm text-muted-foreground">
+                              {formatBytes(bucketSize)}
+                            </div>
+                          </div>
+                          <Progress
+                            value={percentage}
+                            className="h-1.5 group-hover:bg-muted/70 transition-colors"
+                          />
+                          <div className="flex items-center justify-between text-xs text-muted-foreground mt-1">
+                            <span>{bucket.objects_count || 0} files</span>
+                            <span>{percentage}% of total</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div className="mt-6">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        asChild
+                        className="group"
+                      >
+                        <Link href="/dashboard/buckets">
+                          View all buckets
+                          <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
+                        </Link>
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="lg:col-span-3 transition-all duration-200 hover:shadow-md">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Clock className="h-5 w-5 text-primary" />
+                  <span>Recent Activity</span>
+                </CardTitle>
+                <CardDescription>
+                  Latest actions in your storage
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {activityLogs.length === 0 ? (
+                  <div className="text-center py-6">
+                    <Clock className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <h3 className="text-lg font-medium mb-2">
+                      No Activity Yet
+                    </h3>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Your activity will appear here as you work with your R2
+                      storage.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-5">
+                    {activityLogs.slice(0, 5).map((activity, i) => {
+                      const getActivityColor = (action: string) => {
+                        switch (action) {
+                          case "upload":
+                            return "bg-green-500/10 text-green-500";
+                          case "create":
+                            return "bg-blue-500/10 text-blue-500";
+                          case "download":
+                            return "bg-purple-500/10 text-purple-500";
+                          case "delete":
+                            return "bg-amber-500/10 text-amber-500";
+                          case "share":
+                            return "bg-indigo-500/10 text-indigo-500";
+                          default:
+                            return "bg-gray-500/10 text-gray-500";
+                        }
+                      };
+
+                      const getActivityIcon = (action: string) => {
+                        switch (action) {
+                          case "upload":
+                            return Upload;
+                          case "create":
+                            return Plus;
+                          case "download":
+                            return Download;
+                          case "delete":
+                            return FileText;
+                          case "share":
+                            return ArrowUpRight;
+                          default:
+                            return FileText;
+                        }
+                      };
+
+                      const Icon = getActivityIcon(activity.action);
+
+                      return (
+                        <div
+                          key={activity.id}
+                          className="flex items-start gap-4 group"
+                        >
+                          <div
+                            className={`flex h-9 w-9 items-center justify-center rounded-full ${getActivityColor(
+                              activity.action
+                            )} transition-transform group-hover:scale-110`}
+                          >
+                            <Icon className="h-4 w-4" />
+                          </div>
+                          <div className="flex-1 space-y-1">
+                            <p className="text-sm font-medium leading-none group-hover:text-primary transition-colors">
+                              {activity.action.charAt(0).toUpperCase() +
+                                activity.action.slice(1)}
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                              {activity.description}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {getTimeAgo(activity.timestamp)}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div className="mt-6">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        asChild
+                        className="group"
+                      >
+                        <Link href="/dashboard/activity">
+                          View all activity
+                          <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
+                        </Link>
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {!loading && hasCredentials && (
+          <Card className="transition-all duration-200 hover:shadow-md">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <AlertCircle className="h-5 w-5 text-primary" />
+                <span>Storage Insights</span>
+              </CardTitle>
+              <CardDescription>
+                Recommendations to optimize your storage
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {storageUsed > getTotalStorageLimit() * 0.7 && (
                   <div className="rounded-lg border p-4 bg-amber-500/5">
                     <div className="flex items-start gap-4">
                       <div className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-500/10">
@@ -469,8 +679,12 @@ export default function DashboardPage() {
                           Storage limit approaching
                         </h4>
                         <p className="text-sm text-muted-foreground mt-1">
-                          You're using 83% of your storage limit. Consider
-                          upgrading your plan or cleaning up unused files.
+                          You're using{" "}
+                          {Math.round(
+                            (storageUsed / getTotalStorageLimit()) * 100
+                          )}
+                          % of your storage limit. Consider upgrading your plan
+                          or cleaning up unused files.
                         </p>
                         <div className="mt-3 flex gap-2">
                           <Button size="sm" variant="outline" className="h-8">
@@ -483,7 +697,71 @@ export default function DashboardPage() {
                       </div>
                     </div>
                   </div>
+                )}
 
+                {buckets.length === 0 ? (
+                  <div className="rounded-lg border p-4">
+                    <div className="flex items-start gap-4">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-500/10">
+                        <Database className="h-5 w-5 text-blue-500" />
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="text-sm font-medium">
+                          Get Started with R2
+                        </h4>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Create your first bucket to start storing and managing
+                          your files with Cloudflare R2.
+                        </p>
+                        <div className="mt-3">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8"
+                            onClick={() =>
+                              router.push("/dashboard/buckets?action=create")
+                            }
+                          >
+                            Create Bucket
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : totalFiles === 0 ? (
+                  <div className="rounded-lg border p-4">
+                    <div className="flex items-start gap-4">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-500/10">
+                        <Upload className="h-5 w-5 text-blue-500" />
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="text-sm font-medium">
+                          Upload Your First Files
+                        </h4>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          You have {buckets.length}{" "}
+                          {buckets.length === 1 ? "bucket" : "buckets"} ready.
+                          Start uploading files to make the most of your R2
+                          storage.
+                        </p>
+                        <div className="mt-3">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8"
+                            onClick={() =>
+                              router.push(
+                                `/dashboard/files?bucket=${buckets[0]?.name}`
+                              )
+                            }
+                          >
+                            Upload Files
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
                   <div className="rounded-lg border p-4">
                     <div className="flex items-start gap-4">
                       <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-500/10">
@@ -491,25 +769,31 @@ export default function DashboardPage() {
                       </div>
                       <div className="flex-1">
                         <h4 className="text-sm font-medium">
-                          Optimize large files
+                          Optimize Your Storage
                         </h4>
                         <p className="text-sm text-muted-foreground mt-1">
-                          We found 15 large files {"(>50MB)"} that could be
-                          compressed to save storage space.
+                          You have {totalFiles} files across {buckets.length}{" "}
+                          {buckets.length === 1 ? "bucket" : "buckets"}.
+                          Consider organizing your files for better management.
                         </p>
                         <div className="mt-3">
-                          <Button size="sm" variant="outline" className="h-8">
-                            View Files
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8"
+                            onClick={() => router.push("/dashboard/buckets")}
+                          >
+                            Manage Buckets
                           </Button>
                         </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <TabsContent value="analytics" className="space-y-4">
           <Card>
@@ -547,74 +831,75 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-5">
-                {[...Array(8)].map((_, i) => (
-                  <div
-                    key={i}
-                    className="flex items-start gap-4 border-b pb-4 last:border-0 group"
-                  >
+                {activityLogs.slice(0, 8).map((activity) => {
+                  const getActivityColor = (action: string) => {
+                    switch (action) {
+                      case "upload":
+                        return "bg-green-500/10 text-green-500";
+                      case "create":
+                        return "bg-blue-500/10 text-blue-500";
+                      case "download":
+                        return "bg-purple-500/10 text-purple-500";
+                      case "delete":
+                        return "bg-red-500/10 text-red-500";
+                      case "share":
+                        return "bg-amber-500/10 text-amber-500";
+                      default:
+                        return "bg-gray-500/10 text-gray-500";
+                    }
+                  };
+
+                  const getActivityIcon = (action: string) => {
+                    switch (action) {
+                      case "upload":
+                        return Upload;
+                      case "create":
+                        return Plus;
+                      case "download":
+                        return Download;
+                      case "delete":
+                        return FileText;
+                      case "share":
+                        return ArrowUpRight;
+                      default:
+                        return FileText;
+                    }
+                  };
+
+                  const Icon = getActivityIcon(activity.action);
+
+                  return (
                     <div
-                      className={`flex h-9 w-9 items-center justify-center rounded-full ${
-                        i % 5 === 0
-                          ? "bg-green-500/10"
-                          : i % 5 === 1
-                          ? "bg-blue-500/10"
-                          : i % 5 === 2
-                          ? "bg-purple-500/10"
-                          : i % 5 === 3
-                          ? "bg-red-500/10"
-                          : "bg-amber-500/10"
-                      } transition-transform group-hover:scale-110`}
+                      key={activity.id}
+                      className="flex items-start gap-4 border-b pb-4 last:border-0 group"
                     >
-                      {i % 5 === 0 ? (
-                        <Upload className={`h-4 w-4 text-green-500`} />
-                      ) : i % 5 === 1 ? (
-                        <Download className={`h-4 w-4 text-blue-500`} />
-                      ) : i % 5 === 2 ? (
-                        <Plus className={`h-4 w-4 text-purple-500`} />
-                      ) : i % 5 === 3 ? (
-                        <FileText className={`h-4 w-4 text-red-500`} />
-                      ) : (
-                        <FolderOpen className={`h-4 w-4 text-amber-500`} />
-                      )}
-                    </div>
-                    <div className="flex-1 space-y-1">
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-medium leading-none group-hover:text-primary transition-colors">
-                          {i % 5 === 0
-                            ? "File Upload"
-                            : i % 5 === 1
-                            ? "File Download"
-                            : i % 5 === 2
-                            ? "Bucket Created"
-                            : i % 5 === 3
-                            ? "File Deleted"
-                            : "Folder Created"}
+                      <div
+                        className={`flex h-9 w-9 items-center justify-center rounded-full ${getActivityColor(
+                          activity.action
+                        )} transition-transform group-hover:scale-110`}
+                      >
+                        <Icon className="h-4 w-4" />
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-medium leading-none group-hover:text-primary transition-colors">
+                            {activity.action.charAt(0).toUpperCase() +
+                              activity.action.slice(1)}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {getTimeAgo(activity.timestamp)}
+                          </p>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          {activity.description}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {i < 2
-                            ? "Today"
-                            : i < 5
-                            ? "Yesterday"
-                            : `${i - 3} days ago`}
+                          User: {activity.user}
                         </p>
                       </div>
-                      <p className="text-sm text-muted-foreground">
-                        {i % 5 === 0
-                          ? `Uploaded file-${i}.jpg to user-uploads bucket`
-                          : i % 5 === 1
-                          ? `Downloaded file-${i}.pdf from assets-production bucket`
-                          : i % 5 === 2
-                          ? `Created new bucket bucket-${i}`
-                          : i % 5 === 3
-                          ? `Deleted old-file-${i}.txt from logs bucket`
-                          : `Created folder folder-${i} in backups bucket`}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        User: john.doe@example.com
-                      </p>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
               <div className="mt-6 flex justify-center">
                 <Button variant="outline" size="sm">
@@ -625,6 +910,18 @@ export default function DashboardPage() {
           </Card>
         </TabsContent>
       </Tabs>
+      {!loading && !hasCredentials && (
+        <SettingsDialog
+          open={isSettingsDialogOpen}
+          onOpenChange={(open) => {
+            setIsSettingsDialogOpen(open);
+            if (!open && typeof window !== "undefined") {
+              // Check if credentials were added when dialog is closed
+              setHasCredentials(hasCloudflareCredentials());
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
