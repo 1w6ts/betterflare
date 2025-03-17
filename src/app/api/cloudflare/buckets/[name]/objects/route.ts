@@ -2,11 +2,11 @@ import { type NextRequest, NextResponse } from "next/server";
 import { S3Client, ListObjectsV2Command } from "@aws-sdk/client-s3";
 
 // List objects in a bucket using the S3-compatible API
-export async function get(
+export async function GET(
   request: NextRequest,
   { params }: { params: { name: string } }
 ) {
-  const bucketName = params.name;
+  const bucketName = await params.name;
 
   // Get credentials from request headers
   const accountId = request.headers.get("x-cf-account-id");
@@ -18,7 +18,7 @@ export async function get(
     `https://${accountId}.r2.cloudflarestorage.com`;
 
   // Get query parameters
-  const searchParams = await request.nextUrl.searchParams;
+  const searchParams = request.nextUrl.searchParams;
   const prefix = searchParams.get("prefix") || "";
   const delimiter = searchParams.get("delimiter") || "";
   const maxKeys = parseInt(searchParams.get("max-keys") || "1000", 10);
