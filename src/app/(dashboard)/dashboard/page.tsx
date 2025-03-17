@@ -40,6 +40,7 @@ import {
 } from "@/lib/cloudflare";
 import { SettingsDialog } from "@/components/dashboard/settings-dialog";
 import { useRouter } from "next/navigation";
+import { FaHeart } from "react-icons/fa";
 
 // Skeleton loader component
 const Skeleton = ({
@@ -88,7 +89,6 @@ export default function DashboardPage() {
       // Check if we're in the browser environment
       if (typeof window !== "undefined") {
         const hasCredentials = hasCloudflareCredentials();
-        setHasCredentials(hasCredentials);
 
         if (!hasCredentials) {
           setLoading(false);
@@ -98,60 +98,32 @@ export default function DashboardPage() {
         try {
           // Fetch actual data if credentials exist
           const bucketsData = await listBuckets();
-          const bucketsWithSizes = [...(bucketsData.buckets || [])];
+          setBuckets(bucketsData.buckets || []);
 
           // Calculate total files by fetching objects from each bucket
           let totalFilesCount = 0;
           let totalStorageSize = 0;
 
-          // Process each bucket to get its size and object count
-          for (let i = 0; i < bucketsWithSizes.length; i++) {
-            const bucket = bucketsWithSizes[i];
+          for (const bucket of bucketsData.buckets || []) {
             try {
-              console.log(`Fetching objects for bucket: ${bucket.name}`);
               const objectsData = await listObjects(bucket.name, {
                 maxKeys: 1000,
               });
-              const objects = objectsData.objects || [];
+              totalFilesCount += objectsData.objects?.length || 0;
 
-              // Calculate bucket size and count
-              let bucketSize = 0;
-              objects.forEach((obj: any) => {
-                bucketSize += obj.Size || 0;
+              // Calculate total size
+              objectsData.objects?.forEach((obj: any) => {
+                totalStorageSize += obj.size || 0;
               });
-
-              // Update the bucket with size and object count
-              bucketsWithSizes[i] = {
-                ...bucket,
-                size: bucketSize,
-                objects_count: objects.length,
-              };
-
-              // Add to totals
-              totalFilesCount += objects.length;
-              totalStorageSize += bucketSize;
-
-              console.log(
-                `Bucket ${bucket.name}: ${
-                  objects.length
-                } objects, ${formatBytes(bucketSize)} size`
-              );
             } catch (err) {
               console.error(
                 `Error fetching objects for bucket ${bucket.name}:`,
                 err
               );
-              // Keep the bucket but with zero size/count if there was an error
-              bucketsWithSizes[i] = {
-                ...bucket,
-                size: 0,
-                objects_count: 0,
-              };
             }
           }
 
           // Update state with actual data
-          setBuckets(bucketsWithSizes);
           setTotalFiles(totalFilesCount);
           setStorageUsed(totalStorageSize);
         } catch (err) {
@@ -192,37 +164,19 @@ export default function DashboardPage() {
     <div className="space-y-8">
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            Welcome back, {user?.name?.split(" ")[0] || "User"}!
-          </h1>
+          <h1 className="text-2xl font-bold tracking-tight">Welcome back!</h1>
           <p className="text-muted-foreground">
             Here's an overview of your R2 storage and recent activity.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="h-9">
-            <Download className="mr-2 h-4 w-4" />
-            Export Report
-          </Button>
-          <Button
-            size="sm"
-            className="h-9"
-            onClick={() => {
-              // Show a dialog to create a new bucket
-              const bucketName = prompt("Enter bucket name:");
-              if (bucketName) {
-                const store = useStore.getState();
-                store.createBucket(bucketName);
-              }
-            }}
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            New Bucket
-          </Button>
+        <div className="flex items-center gap-2 text-sm">
+          <p className="flex gap-1 items-center opacity-15">
+            made with <FaHeart /> by 1w6ts
+          </p>
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-3">
         {loading ? (
           // Skeleton loaders for stats cards
           Array(4)
@@ -342,27 +296,6 @@ export default function DashboardPage() {
                 </div>
               </CardContent>
             </Card>
-
-            <Card className="overflow-hidden transition-all duration-200 hover:shadow-md">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Bandwidth</CardTitle>
-                <BarChart3 className="h-4 w-4 text-primary" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">-</div>
-                <div className="flex items-center mt-1">
-                  <Badge
-                    variant="outline"
-                    className="bg-muted text-muted-foreground border-muted/20 text-xs"
-                  >
-                    Not Available
-                  </Badge>
-                  <p className="text-xs text-muted-foreground ml-1.5">
-                    Bandwidth stats not provided by API
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
           </>
         )}
       </div>
@@ -377,11 +310,19 @@ export default function DashboardPage() {
             <Zap className="h-4 w-4" />
             <span>Overview</span>
           </TabsTrigger>
-          <TabsTrigger value="analytics" className="flex items-center gap-2">
+          <TabsTrigger
+            disabled
+            value="analytics"
+            className="flex items-center gap-2"
+          >
             <BarChart3 className="h-4 w-4" />
             <span>Analytics</span>
           </TabsTrigger>
-          <TabsTrigger value="activity" className="flex items-center gap-2">
+          <TabsTrigger
+            disabled
+            value="activity"
+            className="flex items-center gap-2"
+          >
             <Clock className="h-4 w-4" />
             <span>Activity</span>
           </TabsTrigger>
@@ -465,7 +406,7 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+          <div className="grid gap-4 md:grid-cols-1 lg:grid-cols-1">
             <Card className="lg:col-span-4 transition-all duration-200 hover:shadow-md">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -538,112 +479,6 @@ export default function DashboardPage() {
                       >
                         <Link href="/dashboard/buckets">
                           View all buckets
-                          <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
-                        </Link>
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card className="lg:col-span-3 transition-all duration-200 hover:shadow-md">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Clock className="h-5 w-5 text-primary" />
-                  <span>Recent Activity</span>
-                </CardTitle>
-                <CardDescription>
-                  Latest actions in your storage
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {activityLogs.length === 0 ? (
-                  <div className="text-center py-6">
-                    <Clock className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                    <h3 className="text-lg font-medium mb-2">
-                      No Activity Yet
-                    </h3>
-                    <p className="text-sm text-muted-foreground mb-4">
-                      Your activity will appear here as you work with your R2
-                      storage.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-5">
-                    {activityLogs.slice(0, 5).map((activity, i) => {
-                      const getActivityColor = (action: string) => {
-                        switch (action) {
-                          case "upload":
-                            return "bg-green-500/10 text-green-500";
-                          case "create":
-                            return "bg-blue-500/10 text-blue-500";
-                          case "download":
-                            return "bg-purple-500/10 text-purple-500";
-                          case "delete":
-                            return "bg-amber-500/10 text-amber-500";
-                          case "share":
-                            return "bg-indigo-500/10 text-indigo-500";
-                          default:
-                            return "bg-gray-500/10 text-gray-500";
-                        }
-                      };
-
-                      const getActivityIcon = (action: string) => {
-                        switch (action) {
-                          case "upload":
-                            return Upload;
-                          case "create":
-                            return Plus;
-                          case "download":
-                            return Download;
-                          case "delete":
-                            return FileText;
-                          case "share":
-                            return ArrowUpRight;
-                          default:
-                            return FileText;
-                        }
-                      };
-
-                      const Icon = getActivityIcon(activity.action);
-
-                      return (
-                        <div
-                          key={activity.id}
-                          className="flex items-start gap-4 group"
-                        >
-                          <div
-                            className={`flex h-9 w-9 items-center justify-center rounded-full ${getActivityColor(
-                              activity.action
-                            )} transition-transform group-hover:scale-110`}
-                          >
-                            <Icon className="h-4 w-4" />
-                          </div>
-                          <div className="flex-1 space-y-1">
-                            <p className="text-sm font-medium leading-none group-hover:text-primary transition-colors">
-                              {activity.action.charAt(0).toUpperCase() +
-                                activity.action.slice(1)}
-                            </p>
-                            <p className="text-sm text-muted-foreground">
-                              {activity.description}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {getTimeAgo(activity.timestamp)}
-                            </p>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    <div className="mt-6">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        asChild
-                        className="group"
-                      >
-                        <Link href="/dashboard/activity">
-                          View all activity
                           <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
                         </Link>
                       </Button>
