@@ -2,11 +2,11 @@ import { type NextRequest, NextResponse } from "next/server";
 import { S3Client, ListObjectsV2Command } from "@aws-sdk/client-s3";
 
 // List objects in a bucket using the S3-compatible API
-export default async function GET(
+export async function get(
   request: NextRequest,
   { params }: { params: { name: string } }
 ) {
-  const bucketName = await params.name;
+  const bucketName = params.name;
 
   // Get credentials from request headers
   const accountId = request.headers.get("x-cf-account-id");
