@@ -48,6 +48,7 @@ export function BucketDetails({ bucketName, onBack }: BucketDetailsProps) {
 
     try {
       const bucketData = await getBucket(bucketName);
+      console.log("Bucket data:", bucketData); // Debug log
       setBucket(bucketData);
     } catch (err: any) {
       console.error("Error fetching bucket details:", err);
@@ -58,6 +59,7 @@ export function BucketDetails({ bucketName, onBack }: BucketDetailsProps) {
   };
 
   const formatDate = (dateString: string) => {
+    if (!dateString) return "N/A";
     return new Date(dateString).toLocaleString();
   };
 
@@ -140,6 +142,29 @@ export function BucketDetails({ bucketName, onBack }: BucketDetailsProps) {
     );
   }
 
+  // Ensure bucket data is available
+  if (!bucket) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={onBack}>
+            <ArrowLeft className="h-4 w-4 mr-1" />
+            Back to buckets
+          </Button>
+        </div>
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-6 text-center dark:border-amber-800/30 dark:bg-amber-900/10">
+          <h3 className="text-lg font-medium text-amber-800 dark:text-amber-500 mb-2">
+            No Bucket Data Available
+          </h3>
+          <p className="text-amber-700 dark:text-amber-400 mb-4">
+            Could not retrieve bucket details. Please try again.
+          </p>
+          <Button onClick={fetchBucketDetails}>Retry</Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2">
@@ -216,6 +241,18 @@ export function BucketDetails({ bucketName, onBack }: BucketDetailsProps) {
                     {bucket.storage_class || "Standard"}
                   </span>
                 </div>
+                {bucket.jurisdiction && (
+                  <div className="flex justify-between">
+                    <span className="text-sm font-medium">Jurisdiction:</span>
+                    <span className="text-sm">{bucket.jurisdiction}</span>
+                  </div>
+                )}
+                {bucket.size !== undefined && (
+                  <div className="flex justify-between">
+                    <span className="text-sm font-medium">Size:</span>
+                    <span className="text-sm">{bucket.size} bytes</span>
+                  </div>
+                )}
               </CardContent>
               <CardFooter>
                 <Button variant="outline" size="sm" className="w-full">

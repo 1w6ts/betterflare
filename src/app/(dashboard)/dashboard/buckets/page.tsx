@@ -51,7 +51,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SettingsDialog } from "@/components/dashboard/settings-dialog";
-import { toast } from "sonner";
 import {
   hasCloudflareCredentials,
   listBuckets,
@@ -63,6 +62,7 @@ import {
 type Bucket = {
   name: string;
   creation_date: string;
+  size?: number; // Add size property
   location?: string;
   storage_class?: string;
   public_access?: {
@@ -70,25 +70,22 @@ type Bucket = {
     downloadable: boolean;
   };
   custom_domain?: string;
-  size?: number; // Added size property
 };
 
+// Update the BucketDetails import
+import { BucketDetails } from "./bucket-details";
+import { toast } from "sonner";
+
 // Add bucket details view
-const BucketDetails = ({
-  bucketName,
-  onBack,
-}: {
-  bucketName: string;
-  onBack: () => void;
-}) => {
-  return (
-    <div>
-      <Button onClick={onBack}>Back to Buckets</Button>
-      <h2>Bucket Details: {bucketName}</h2>
-      {/* Add bucket details content here */}
-    </div>
-  );
-};
+// const BucketDetails = ({ bucketName, onBack }: { bucketName: string; onBack: () => void }) => {
+//   return (
+//     <div>
+//       <Button onClick={onBack}>Back to Buckets</Button>
+//       <h2>Bucket Details: {bucketName}</h2>
+//       {/* Add bucket details content here */}
+//     </div>
+//   )
+// }
 
 export default function BucketsPage() {
   const router = useRouter();
@@ -191,7 +188,7 @@ export default function BucketsPage() {
 
   const handleCreateBucket = async () => {
     if (!newBucketName.trim()) {
-      toast.error("Error", { description: "Bucket name is required" });
+      toast.error("Error", { description: "Bucket name is required." });
       return;
     }
 
@@ -206,7 +203,7 @@ export default function BucketsPage() {
       // Add the new bucket to the list
       setBuckets((prev) => [...prev, newBucket]);
 
-      toast.success("Success!", {
+      toast.success("Success", {
         description: `Bucket "${newBucketName}" created successfully`,
       });
 
@@ -243,6 +240,8 @@ export default function BucketsPage() {
       toast.error("Error", {
         description: err.message || "Failed to delete bucket",
       });
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -590,7 +589,7 @@ export default function BucketsPage() {
                 </span>
               </Button>
             </form>
-            <Button variant="outline" size="sm" onClick={() => fetchBuckets()}>
+            <Button variant="outline" size="sm" onClick={() => fetchBuckets}>
               Refresh
             </Button>
           </div>

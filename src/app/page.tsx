@@ -521,7 +521,7 @@ export default function LandingPage() {
               </div>
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
                 <Button asChild size="lg" className="h-12 px-8 font-medium">
-                  <Link href="/get-started">
+                  <Link href="/dashboard">
                     Show Me the Better Way{" "}
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Link>

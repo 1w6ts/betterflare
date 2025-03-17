@@ -1,5 +1,7 @@
 "use client";
 
+import React from "react";
+
 import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -13,6 +15,7 @@ import {
   FolderOpen,
   Image,
   Link2,
+  Loader2,
   MoreHorizontal,
   Search,
   Share2,
@@ -56,33 +59,54 @@ import {
 } from "@/components/ui/breadcrumb";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
+import {
+  listObjects,
+  formatBytes,
+  getContentTypeFromKey,
+} from "@/lib/cloudflare";
 import { toast } from "sonner";
 
-// Define the object type based on the API response
+// Define the object type
 type BucketObject = {
   key: string;
   size: number;
   lastModified: string;
   etag: string;
-  contentType: string;
+  storageClass: string;
+  isDirectory?: boolean;
+};
+
+type CommonPrefix = {
+  prefix: string;
+  isDirectory: true;
 };
 
 export default function FilesPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const bucketName = searchParams.get("bucket") || "";
+  const currentPrefix = searchParams.get("prefix") || "";
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
   const [objects, setObjects] = useState<BucketObject[]>([]);
-  const [filteredObjects, setFilteredObjects] = useState<BucketObject[]>([]);
+  const [commonPrefixes, setCommonPrefixes] = useState<CommonPrefix[]>([]);
+  const [filteredItems, setFilteredItems] = useState<
+    (BucketObject | CommonPrefix)[]
+  >([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [continuationToken, setContinuationToken] = useState<string | null>(
+    null
+  );
+  const [isTruncated, setIsTruncated] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   // Form state for uploading a file
   const [uploadKey, setUploadKey] = useState("");
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
 
   // Redirect if no bucket is specified
   useEffect(() => {
@@ -91,137 +115,132 @@ export default function FilesPage() {
     }
   }, [bucketName, router]);
 
-  // Fetch objects on component mount
+  // Fetch objects on component mount or when prefix changes
   useEffect(() => {
     if (bucketName) {
       fetchObjects();
     }
-  }, [bucketName]);
+  }, [bucketName, currentPrefix]);
 
   // Filter objects when search query changes
   useEffect(() => {
-    if (objects.length > 0) {
-      setFilteredObjects(
-        objects.filter((obj) =>
-          obj.key.toLowerCase().includes(searchQuery.toLowerCase())
-        )
-      );
-    }
-  }, [searchQuery, objects]);
+    if (objects.length > 0 || commonPrefixes.length > 0) {
+      const allItems = [...commonPrefixes, ...objects];
 
-  const fetchObjects = async () => {
+      if (searchQuery) {
+        setFilteredItems(
+          allItems.filter((item) => {
+            const key = "prefix" in item ? item.prefix : item.key;
+            return key.toLowerCase().includes(searchQuery.toLowerCase());
+          })
+        );
+      } else {
+        setFilteredItems(allItems);
+      }
+    }
+  }, [searchQuery, objects, commonPrefixes]);
+
+  const fetchObjects = async (loadMore = false) => {
     if (!bucketName) return;
 
-    setIsLoading(true);
-    setError(null);
+    if (loadMore) {
+      setIsLoadingMore(true);
+    } else {
+      setIsLoading(true);
+      setError(null);
+    }
 
     try {
-      const response = await fetch(`/api/buckets/${bucketName}/objects`);
+      const result = await listObjects(bucketName, {
+        prefix: currentPrefix,
+        delimiter: "/",
+        continuationToken: loadMore
+          ? continuationToken ?? undefined
+          : undefined,
+        maxKeys: 100,
+      });
 
-      if (!response.ok) {
-        throw new Error("Failed to fetch objects");
+      if (loadMore) {
+        setObjects((prev) => [...prev, ...result.objects]);
+        setCommonPrefixes((prev) => [...prev, ...result.commonPrefixes]);
+      } else {
+        setObjects(result.objects);
+        setCommonPrefixes(result.commonPrefixes);
       }
 
-      const data = await response.json();
-      setObjects(data);
-      setFilteredObjects(data);
-    } catch (err) {
+      setIsTruncated(result.isTruncated);
+      setContinuationToken(result.nextContinuationToken);
+
+      // Initialize filtered items
+      if (!searchQuery) {
+        setFilteredItems([...result.commonPrefixes, ...result.objects]);
+      }
+    } catch (err: any) {
       console.error("Error fetching objects:", err);
-      setError("Failed to load objects. Please try again later.");
+      setError(
+        err.message || "Failed to load objects. Please try again later."
+      );
     } finally {
       setIsLoading(false);
+      setIsLoadingMore(false);
     }
   };
 
-  const uploadObject = async () => {
-    if (!uploadKey.trim()) {
-      toast.error("Error", { description: "Object key is required" });
+  const handleUploadFile = async () => {
+    if (!uploadFile) {
+      toast.error("Error", { description: "Please select a file to upload" });
+      return;
+    }
+
+    const key = uploadKey || uploadFile.name;
+    if (!key.trim()) {
+      toast.error("Error", { description: "File name is required" });
       return;
     }
 
     setIsUploading(true);
 
+    // This is a placeholder for now - we'll implement actual file upload later
+    // For now, let's simulate a successful upload
     try {
-      const response = await fetch(`/api/buckets/${bucketName}/objects`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          key: uploadKey,
-          size: Math.floor(Math.random() * 10000000) + 1000, // Random size between 1KB and 10MB
-          contentType: getContentTypeFromKey(uploadKey),
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to upload object");
-      }
-
-      const newObject = await response.json();
+      await new Promise((resolve) => setTimeout(resolve, 1500));
 
       // Add the new object to the list
+      const newObject: BucketObject = {
+        key: currentPrefix + key,
+        size: uploadFile.size,
+        lastModified: new Date().toISOString(),
+        etag: Math.random().toString(36).substring(2),
+        storageClass: "STANDARD",
+      };
+
       setObjects((prev) => [...prev, newObject]);
-      toast.success("Success", {
-        description: `Object "${uploadKey}" uploaded successfully`,
+      setFilteredItems((prev) => [...prev, newObject]);
+
+      toast.success("Success!", {
+        description: `File "${key}" uploaded successfully`,
       });
 
       // Reset form and close dialog
       setUploadKey("");
+      setUploadFile(null);
       setIsUploadDialogOpen(false);
     } catch (err: any) {
       toast.error("Error", {
-        description: err.message || "Failed to upload object",
+        description: err.message || "Failed to upload file",
       });
     } finally {
       setIsUploading(false);
     }
   };
 
-  const getContentTypeFromKey = (key: string): string => {
-    const extension = key.split(".").pop()?.toLowerCase() || "";
-
-    const contentTypes: Record<string, string> = {
-      jpg: "image/jpeg",
-      jpeg: "image/jpeg",
-      png: "image/png",
-      gif: "image/gif",
-      svg: "image/svg+xml",
-      pdf: "application/pdf",
-      doc: "application/msword",
-      docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      xls: "application/vnd.ms-excel",
-      xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      ppt: "application/vnd.ms-powerpoint",
-      pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-      txt: "text/plain",
-      html: "text/html",
-      css: "text/css",
-      js: "application/javascript",
-      json: "application/json",
-      xml: "application/xml",
-      zip: "application/zip",
-      mp3: "audio/mpeg",
-      mp4: "video/mp4",
-      webm: "video/webm",
-      ogg: "audio/ogg",
-      wav: "audio/wav",
-    };
-
-    return contentTypes[extension] || "application/octet-stream";
-  };
-
-  const formatBytes = (bytes: number): string => {
-    if (bytes === 0) return "0 Bytes";
-
-    const k = 1024;
-    const sizes = ["Bytes", "KB", "MB", "GB", "TB", "PB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-
-    return (
-      Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
-    );
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      setUploadFile(e.target.files[0]);
+      if (!uploadKey) {
+        setUploadKey(e.target.files[0].name);
+      }
+    }
   };
 
   const toggleFileSelection = (key: string) => {
@@ -231,10 +250,35 @@ export default function FilesPage() {
   };
 
   const toggleAllFiles = () => {
-    if (selectedFiles.length === filteredObjects.length) {
+    if (selectedFiles.length === filteredItems.length) {
       setSelectedFiles([]);
     } else {
-      setSelectedFiles(filteredObjects.map((obj) => obj.key));
+      setSelectedFiles(
+        filteredItems
+          .filter((item) => !("isDirectory" in item && item.isDirectory))
+          .map((item) => ("key" in item ? item.key : ""))
+          .filter(Boolean)
+      );
+    }
+  };
+
+  const navigateToFolder = (prefix: string) => {
+    router.push(`/dashboard/files?bucket=${bucketName}&prefix=${prefix}`);
+  };
+
+  const navigateUp = () => {
+    if (!currentPrefix) return;
+
+    // Remove the last folder and the trailing slash
+    const parts = currentPrefix.split("/");
+    parts.pop(); // Remove the empty string after the last slash
+    if (parts.length > 0) {
+      parts.pop(); // Remove the last folder
+      const newPrefix = parts.join("/") + (parts.length > 0 ? "/" : "");
+      router.push(`/dashboard/files?bucket=${bucketName}&prefix=${newPrefix}`);
+    } else {
+      // If we're at the root level, remove the prefix
+      router.push(`/dashboard/files?bucket=${bucketName}`);
     }
   };
 
@@ -306,25 +350,70 @@ export default function FilesPage() {
     }
   };
 
+  // Generate breadcrumbs for the current path
+  const renderBreadcrumbs = () => {
+    if (!currentPrefix) {
+      return (
+        <Breadcrumb className="flex items-center">
+          <BreadcrumbItem>
+            <BreadcrumbLink href="/dashboard/buckets">Buckets</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator>
+            <ChevronRight className="h-4 w-4" />
+          </BreadcrumbSeparator>
+          <BreadcrumbItem>
+            <BreadcrumbLink href={`/dashboard/files?bucket=${bucketName}`}>
+              {bucketName}
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+        </Breadcrumb>
+      );
+    }
+
+    const parts = currentPrefix.split("/").filter(Boolean);
+    let currentPath = "";
+
+    return (
+      <Breadcrumb className="flex items-center">
+        <BreadcrumbItem>
+          <BreadcrumbLink href="/dashboard/buckets">Buckets</BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator>
+          <ChevronRight className="h-4 w-4" />
+        </BreadcrumbSeparator>
+        <BreadcrumbItem>
+          <BreadcrumbLink href={`/dashboard/files?bucket=${bucketName}`}>
+            {bucketName}
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        {parts.map((part, index) => {
+          currentPath += part + "/";
+          return (
+            <React.Fragment key={index}>
+              <BreadcrumbSeparator>
+                <ChevronRight className="h-4 w-4" />
+              </BreadcrumbSeparator>
+              <BreadcrumbItem>
+                <BreadcrumbLink
+                  href={`/dashboard/files?bucket=${bucketName}&prefix=${currentPath}`}
+                >
+                  {part}
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+            </React.Fragment>
+          );
+        })}
+      </Breadcrumb>
+    );
+  };
+
   // Loading state
   if (isLoading) {
     return (
       <div className="space-y-6">
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
-            <Breadcrumb>
-              <BreadcrumbItem>
-                <BreadcrumbLink href="/dashboard/buckets">
-                  Buckets
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator>
-                <ChevronRight className="h-4 w-4" />
-              </BreadcrumbSeparator>
-              <BreadcrumbItem>
-                <Skeleton className="h-4 w-32" />
-              </BreadcrumbItem>
-            </Breadcrumb>
+            {renderBreadcrumbs()}
             <h1 className="text-2xl font-bold tracking-tight mt-2">
               <Skeleton className="h-8 w-48" />
             </h1>
@@ -397,21 +486,7 @@ export default function FilesPage() {
       <div className="space-y-6">
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
-            <Breadcrumb>
-              <BreadcrumbItem>
-                <BreadcrumbLink href="/dashboard/buckets">
-                  Buckets
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator>
-                <ChevronRight className="h-4 w-4" />
-              </BreadcrumbSeparator>
-              <BreadcrumbItem>
-                <BreadcrumbLink href={`/dashboard/files?bucket=${bucketName}`}>
-                  {bucketName}
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-            </Breadcrumb>
+            {renderBreadcrumbs()}
             <h1 className="text-2xl font-bold tracking-tight mt-2">
               {bucketName}
             </h1>
@@ -423,7 +498,7 @@ export default function FilesPage() {
             Error Loading Files
           </h3>
           <p className="text-muted-foreground mb-4">{error}</p>
-          <Button onClick={fetchObjects}>Retry</Button>
+          <Button onClick={() => fetchObjects}>Retry</Button>
         </div>
       </div>
     );
@@ -432,24 +507,15 @@ export default function FilesPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-        <div>
-          <Breadcrumb>
-            <BreadcrumbItem>
-              <BreadcrumbLink href="/dashboard/buckets">Buckets</BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator>
-              <ChevronRight className="h-4 w-4" />
-            </BreadcrumbSeparator>
-            <BreadcrumbItem>
-              <BreadcrumbLink href={`/dashboard/files?bucket=${bucketName}`}>
-                {bucketName}
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-          </Breadcrumb>
+        <div className="">
           <h1 className="text-2xl font-bold tracking-tight mt-2">
             {bucketName}
           </h1>
-          <p className="text-muted-foreground">Manage files in this bucket</p>
+          <p className="text-muted-foreground">
+            {currentPrefix
+              ? `Browsing ${currentPrefix}`
+              : "Manage files in this bucket"}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Dialog
@@ -474,7 +540,11 @@ export default function FilesPage() {
                   <Label htmlFor="file-key">File path/key</Label>
                   <Input
                     id="file-key"
-                    placeholder="path/to/your/file.jpg"
+                    placeholder={
+                      currentPrefix
+                        ? `${currentPrefix}your-file.jpg`
+                        : "path/to/your/file.jpg"
+                    }
                     value={uploadKey}
                     onChange={(e) => setUploadKey(e.target.value)}
                   />
@@ -488,12 +558,19 @@ export default function FilesPage() {
                       <Upload className="h-5 w-5 text-muted-foreground" />
                     </div>
                     <p className="text-sm font-medium">
-                      Drag & drop files here
+                      {uploadFile ? uploadFile.name : "Drag & drop files here"}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      or click to browse files
+                      {uploadFile
+                        ? `${formatBytes(uploadFile.size)}`
+                        : "or click to browse files"}
                     </p>
-                    <Input type="file" className="hidden" id="file-upload" />
+                    <Input
+                      type="file"
+                      className="hidden"
+                      id="file-upload"
+                      onChange={handleFileChange}
+                    />
                     <Button
                       variant="outline"
                       size="sm"
@@ -515,13 +592,13 @@ export default function FilesPage() {
                 >
                   Cancel
                 </Button>
-                <Button onClick={uploadObject} disabled={isUploading}>
+                <Button onClick={handleUploadFile} disabled={isUploading}>
                   {isUploading ? "Uploading..." : "Upload File"}
                 </Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
-          <Button variant="outline">
+          <Button variant="outline" onClick={() => setIsUploadDialogOpen(true)}>
             <FolderOpen className="mr-2 h-4 w-4" />
             New Folder
           </Button>
@@ -582,8 +659,8 @@ export default function FilesPage() {
               <TableHead className="w-[40px]">
                 <Checkbox
                   checked={
-                    filteredObjects.length > 0 &&
-                    selectedFiles.length === filteredObjects.length
+                    filteredItems.length > 0 &&
+                    selectedFiles.length === objects.length
                   }
                   onCheckedChange={toggleAllFiles}
                   aria-label="Select all files"
@@ -596,79 +673,161 @@ export default function FilesPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredObjects.length === 0 ? (
+            {currentPrefix && (
+              <TableRow>
+                <TableCell></TableCell>
+                <TableCell className="font-medium">
+                  <div
+                    className="flex items-center gap-2 cursor-pointer hover:text-primary"
+                    onClick={navigateUp}
+                  >
+                    <FolderOpen className="h-4 w-4 text-muted-foreground" />
+                    ../ (Parent Directory)
+                  </div>
+                </TableCell>
+                <TableCell>-</TableCell>
+                <TableCell>-</TableCell>
+                <TableCell></TableCell>
+              </TableRow>
+            )}
+
+            {filteredItems.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={5} className="h-24 text-center">
                   {searchQuery
                     ? "No files found matching your search."
-                    : "No files found in this bucket. Upload your first file!"}
+                    : "No files found in this location. Upload your first file!"}
                 </TableCell>
               </TableRow>
             ) : (
-              filteredObjects.map((object) => (
-                <TableRow key={object.key}>
-                  <TableCell>
-                    <Checkbox
-                      checked={selectedFiles.includes(object.key)}
-                      onCheckedChange={() => toggleFileSelection(object.key)}
-                      aria-label={`Select ${object.key}`}
-                    />
-                  </TableCell>
-                  <TableCell className="font-medium">
-                    <div className="flex items-center gap-2">
-                      {getFileIcon(object.contentType)}
-                      {object.key.split("/").pop()}
-                    </div>
-                    {object.key.includes("/") && (
-                      <div className="text-xs text-muted-foreground mt-0.5">
-                        {object.key.substring(0, object.key.lastIndexOf("/"))}
-                      </div>
-                    )}
-                  </TableCell>
-                  <TableCell>{formatBytes(object.size)}</TableCell>
-                  <TableCell>
-                    {new Date(object.lastModified).toLocaleString()}
-                  </TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
-                          <MoreHorizontal className="h-4 w-4" />
-                          <span className="sr-only">Open menu</span>
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                        <DropdownMenuItem>
-                          <Download className="mr-2 h-4 w-4" />
-                          <span>Download</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <Eye className="mr-2 h-4 w-4" />
-                          <span>Preview</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <Link2 className="mr-2 h-4 w-4" />
-                          <span>Copy URL</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <Share2 className="mr-2 h-4 w-4" />
-                          <span>Share</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem className="text-destructive focus:text-destructive">
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          <span>Delete</span>
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))
+              filteredItems.map((item, index) => {
+                if ("prefix" in item) {
+                  // This is a directory (common prefix)
+                  return (
+                    <TableRow key={`dir-${index}`}>
+                      <TableCell></TableCell>
+                      <TableCell className="font-medium">
+                        <div
+                          className="flex items-center gap-2 cursor-pointer hover:text-primary"
+                          onClick={() => navigateToFolder(item.prefix)}
+                        >
+                          <FolderOpen className="h-4 w-4 text-primary" />
+                          {item.prefix.split("/").filter(Boolean).pop()}/
+                        </div>
+                      </TableCell>
+                      <TableCell>-</TableCell>
+                      <TableCell>-</TableCell>
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon">
+                              <MoreHorizontal className="h-4 w-4" />
+                              <span className="sr-only">Open menu</span>
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                            <DropdownMenuItem
+                              onClick={() => navigateToFolder(item.prefix)}
+                            >
+                              <FolderOpen className="mr-2 h-4 w-4" />
+                              <span>Open Folder</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem className="text-destructive focus:text-destructive">
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              <span>Delete Folder</span>
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  );
+                } else {
+                  // This is a file
+                  const fileName = item.key.split("/").pop() || item.key;
+                  const contentType = getContentTypeFromKey(fileName);
+
+                  return (
+                    <TableRow key={`file-${index}`}>
+                      <TableCell>
+                        <Checkbox
+                          checked={selectedFiles.includes(item.key)}
+                          onCheckedChange={() => toggleFileSelection(item.key)}
+                          aria-label={`Select ${item.key}`}
+                        />
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        <div className="flex items-center gap-2">
+                          {getFileIcon(contentType)}
+                          {fileName}
+                        </div>
+                      </TableCell>
+                      <TableCell>{formatBytes(item.size)}</TableCell>
+                      <TableCell>
+                        {new Date(item.lastModified).toLocaleString()}
+                      </TableCell>
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon">
+                              <MoreHorizontal className="h-4 w-4" />
+                              <span className="sr-only">Open menu</span>
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                            <DropdownMenuItem>
+                              <Download className="mr-2 h-4 w-4" />
+                              <span>Download</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem>
+                              <Eye className="mr-2 h-4 w-4" />
+                              <span>Preview</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem>
+                              <Link2 className="mr-2 h-4 w-4" />
+                              <span>Copy URL</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem>
+                              <Share2 className="mr-2 h-4 w-4" />
+                              <span>Share</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem className="text-destructive focus:text-destructive">
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              <span>Delete</span>
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  );
+                }
+              })
             )}
           </TableBody>
         </Table>
       </div>
+
+      {isTruncated && (
+        <div className="flex justify-center">
+          <Button
+            variant="outline"
+            onClick={() => fetchObjects(true)}
+            disabled={isLoadingMore}
+          >
+            {isLoadingMore ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Loading more...
+              </>
+            ) : (
+              "Load More"
+            )}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

@@ -82,7 +82,10 @@ export const listBuckets = async ({
 };
 
 // Get a single bucket
-export const getBucket = async (bucketName: string) => {
+export const getBucket = async (
+  bucketName: string,
+  jurisdiction = "default"
+) => {
   const { accountId, apiToken } = getCloudflareCredentials();
 
   if (!accountId || !apiToken) {
@@ -97,6 +100,7 @@ export const getBucket = async (bucketName: string) => {
         "Content-Type": "application/json",
         "x-cf-account-id": accountId,
         "x-cf-api-token": apiToken,
+        "x-cf-jurisdiction": jurisdiction,
       },
     });
 
@@ -190,14 +194,47 @@ export const deleteBucket = async (bucketName: string) => {
   }
 };
 
-// List objects in a bucket (using S3 API)
-export const listObjects = async (bucketName: string, prefix = "") => {
-  // For listing objects, we need to use the S3 API
-  // This would require the AWS SDK for JavaScript in the browser
-  // For simplicity in this demo, we'll use our mock API
+// List objects in a bucket using the S3-compatible API
+export const listObjects = async (
+  bucketName: string,
+  options: {
+    prefix?: string;
+    delimiter?: string;
+    maxKeys?: number;
+    continuationToken?: string;
+  } = {}
+) => {
+  const { accountId, apiToken, accessKeyId, secretAccessKey, endpoint } =
+    getCloudflareCredentials();
+
+  if (!accountId || !accessKeyId || !secretAccessKey) {
+    throw new Error("Cloudflare R2 credentials not found");
+  }
+
+  // Build query parameters
+  const params = new URLSearchParams();
+  if (options.prefix) params.append("prefix", options.prefix);
+  if (options.delimiter) params.append("delimiter", options.delimiter);
+  if (options.maxKeys) params.append("max-keys", options.maxKeys.toString());
+  if (options.continuationToken)
+    params.append("continuation-token", options.continuationToken);
+
   try {
+    // Use our proxy API
     const response = await fetch(
-      `/api/buckets/${bucketName}/objects?prefix=${prefix}`
+      `/api/cloudflare/buckets/${bucketName}/objects?${params.toString()}`,
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "x-cf-account-id": accountId,
+          "x-cf-api-token": apiToken,
+          "x-cf-access-key-id": accessKeyId,
+          "x-cf-secret-access-key": secretAccessKey,
+          "x-cf-endpoint":
+            endpoint || `https://${accountId}.r2.cloudflarestorage.com`,
+        },
+      }
     );
 
     if (!response.ok) {
@@ -211,4 +248,52 @@ export const listObjects = async (bucketName: string, prefix = "") => {
     console.error(`Error listing objects in bucket ${bucketName}:`, error);
     throw error;
   }
+};
+
+// Get content type based on file extension
+export const getContentTypeFromKey = (key: string): string => {
+  const extension = key.split(".").pop()?.toLowerCase() || "";
+
+  const contentTypes: Record<string, string> = {
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    png: "image/png",
+    gif: "image/gif",
+    svg: "image/svg+xml",
+    webp: "image/webp",
+    pdf: "application/pdf",
+    doc: "application/msword",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    xls: "application/vnd.ms-excel",
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ppt: "application/vnd.ms-powerpoint",
+    pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    txt: "text/plain",
+    html: "text/html",
+    css: "text/css",
+    js: "application/javascript",
+    json: "application/json",
+    xml: "application/xml",
+    zip: "application/zip",
+    mp3: "audio/mpeg",
+    mp4: "video/mp4",
+    webm: "video/webm",
+    ogg: "audio/ogg",
+    wav: "audio/wav",
+  };
+
+  return contentTypes[extension] || "application/octet-stream";
+};
+
+// Format bytes to human-readable format
+export const formatBytes = (bytes: number, decimals = 2): string => {
+  if (bytes === 0) return "0 Bytes";
+
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ["Bytes", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
+
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
 };
