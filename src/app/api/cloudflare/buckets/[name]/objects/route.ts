@@ -6,7 +6,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { name: string } }
 ) {
-  const bucketName = await params.name;
+  const bucketName = params.name;
 
   // Get credentials from request headers
   const accountId = request.headers.get("x-cf-account-id");
