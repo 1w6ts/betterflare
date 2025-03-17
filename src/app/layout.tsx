@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { GeistSans } from "geist/font/sans";
 import "./globals.css";
+import { Toaster } from "sonner";
 
 export const metadata: Metadata = {
   title: "Betterflare",
@@ -17,6 +18,7 @@ export default function RootLayout({
       <body
         className={`${GeistSans.variable} ${GeistSans.className} antialiased`}
       >
+        <Toaster position="bottom-right" />
         {children}
       </body>
     </html>
