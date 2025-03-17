@@ -6,7 +6,7 @@ export async function get(
   request: NextRequest,
   { params }: { params: { name: string } }
 ) {
-  const bucketName = await params.name;
+  const bucketName = params.name;
 
   // Get credentials from request headers
   const accountId = request.headers.get("x-cf-account-id");
@@ -18,7 +18,7 @@ export async function get(
     `https://${accountId}.r2.cloudflarestorage.com`;
 
   // Get query parameters
-  const searchParams = request.nextUrl.searchParams;
+  const searchParams = await request.nextUrl.searchParams;
   const prefix = searchParams.get("prefix") || "";
   const delimiter = searchParams.get("delimiter") || "";
   const maxKeys = parseInt(searchParams.get("max-keys") || "1000", 10);
