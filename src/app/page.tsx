@@ -503,97 +503,6 @@ export default function LandingPage() {
         <section className="w-full py-20 md:py-32">
           <div className="container px-4 md:px-6">
             <motion.div
-              className="text-center space-y-4 mb-12"
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5 }}
-            >
-              <div className="inline-block rounded-lg bg-primary/10 px-3 py-1 text-sm text-primary">
-                Real Talk from Real Users
-              </div>
-              <h2 className="text-3xl font-bold tracking-tighter md:text-4xl/tight">
-                From the "Thank God Someone Built This" department
-              </h2>
-              <p className="max-w-[700px] mx-auto text-muted-foreground md:text-lg">
-                Don't take our word for it. Here's what people who've escaped
-                the Cloudflare dashboard maze have to say.
-              </p>
-            </motion.div>
-
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {[
-                {
-                  quote:
-                    "I used to dread working with R2. Now I actually look forward to it. What kind of witchcraft is this?",
-                  author: "Sarah Chen",
-                  role: "Full Stack Developer & Former R2 Hater",
-                  delay: 0,
-                },
-                {
-                  quote:
-                    "I spent more time fighting with Cloudflare's UI than actually managing my files. Betterflare fixed that in about 5 minutes.",
-                  author: "Marcus Johnson",
-                  role: "DevOps Engineer",
-                  delay: 0.1,
-                },
-                {
-                  quote:
-                    "My therapist says I talk about Betterflare too much, but she doesn't understand what I went through before finding it.",
-                  author: "Priya Sharma",
-                  role: "Frontend Developer",
-                  delay: 0.2,
-                },
-              ].map((testimonial, index) => (
-                <motion.div
-                  key={index}
-                  className="group relative"
-                  initial={{ opacity: 0, y: 20 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 0.5, delay: testimonial.delay }}
-                >
-                  <div className="absolute -inset-px bg-gradient-to-r from-primary/10 to-primary/5 opacity-0 group-hover:opacity-100 rounded-lg transition-opacity"></div>
-                  <div className="relative rounded-lg border bg-background p-6 hover:shadow-md transition-shadow">
-                    <div className="flex items-center gap-1 mb-4">
-                      {[...Array(5)].map((_, i) => (
-                        <Star
-                          key={i}
-                          className="h-4 w-4 fill-primary text-primary"
-                        />
-                      ))}
-                    </div>
-                    <p className="text-muted-foreground mb-4">
-                      "{testimonial.quote}"
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
-                        <span className="text-xs font-medium">
-                          {testimonial.author
-                            .split(" ")
-                            .map((n) => n[0])
-                            .join("")}
-                        </span>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">
-                          {testimonial.author}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {testimonial.role}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="w-full py-20 md:py-32">
-          <div className="container px-4 md:px-6">
-            <motion.div
               className="max-w-3xl mx-auto text-center space-y-8"
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
@@ -623,11 +532,7 @@ export default function LandingPage() {
                   asChild
                   className="h-12 px-8 font-medium"
                 >
-                  <Link
-                    href="https://docs.betterflare.io"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
+                  <Link href="/docs" target="_blank" rel="noreferrer">
                     <ExternalLink className="mr-2 h-4 w-4" />
                     Read the Docs
                   </Link>
